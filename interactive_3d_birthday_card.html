@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Happy 10000 Days, Bao!</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js & OrbitControls & GSAP -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- MediaPipe Hands & Camera Utils -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Dancing+Script:wght@700&family=Outfit:wght@300;400;600&family=Playfair+Display:ital,wght@0,600;1,400&display=swap');
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Outfit', sans-serif;
+            background-color: #0d0907;
+            user-select: none;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        .glass-panel {
+            background: rgba(255, 240, 230, 0.07);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 215, 180, 0.15);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .cursive-title {
+            font-family: 'Dancing Script', cursive;
+        }
+
+        .serif-text {
+            font-family: 'Playfair Display', serif;
+        }
+
+        /* Pulse glow for status badge */
+        .glow-active {
+            box-shadow: 0 0 15px rgba(255, 180, 100, 0.6);
+        }
+
+        /* Video element hidden or positioned inside preview box */
+        #webcam-video {
+            transform: scaleX(-1);
+            object-fit: cover;
+            width: 100%;
+            height: 100%;
+            border-radius: 0.75rem;
+        }
+
+        /* Subtle candlelight ambient glow on UI background */
+        .candle-vignette {
+            pointer-events: none;
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(circle at 50% 50%, transparent 40%, rgba(15, 8, 5, 0.6) 80%, rgba(5, 2, 1, 0.9) 100%);
+            z-index: 2;
+        }
+    </style>
+</head>
+<body class="text-amber-50">
+
+    <!-- 3D Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- Atmospheric Vignette -->
+    <div class="candle-vignette"></div>
+
+    <!-- Main UI Overlay -->
+    <div class="relative z-10 flex flex-col justify-between h-full p-4 md:p-8 pointer-events-none">
+        
+        <!-- Header / Title Banner -->
+        <header class="flex justify-between items-start">
+            <div class="glass-panel px-6 py-4 rounded-2xl pointer-events-auto max-w-md">
+                <h1 class="text-2xl md:text-3xl font-bold bg-gradient-to-r from-amber-200 via-orange-300 to-pink-300 bg-clip-text text-transparent cursive-title">
+                    Happy 10,000 Days!
+                </h1>
+                <p class="text-xs text-amber-200/70 mt-1">
+                    Open your hand <i class="fa-solid font-normal fa-hand-paper text-amber-300 mx-1"></i> to open the card & celebrate!
+                </p>
+            </div>
+
+            <!-- Hand Tracking Indicator Badge -->
+            <div class="glass-panel px-4 py-3 rounded-2xl flex items-center gap-3 pointer-events-auto">
+                <div id="status-dot" class="w-3.5 h-3.5 rounded-full bg-red-500 transition-all duration-300"></div>
+                <div>
+                    <div id="status-text" class="text-xs font-semibold uppercase tracking-wider text-amber-200">
+                        Camera Loading...
+                    </div>
+                    <div id="gesture-text" class="text-xs text-amber-100/60">
+                        Hand Closed / Card Closed
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Center Prompt on Initial Load -->
+        <div id="interaction-prompt" class="self-center text-center transition-opacity duration-700 pointer-events-auto">
+            <button id="toggle-card-btn" class="glass-panel px-8 py-4 rounded-full text-amber-200 font-semibold hover:bg-amber-500/20 hover:scale-105 active:scale-95 transition-all shadow-lg border border-amber-300/30 flex items-center gap-3 group">
+                <i class="fa-solid fa-gift text-xl group-hover:rotate-12 transition-transform text-pink-400"></i>
+                <span id="btn-label">Click or Open Hand to Unfold Magic</span>
+            </button>
+        </div>
+
+        <!-- Footer / Webcam Preview & Manual Toggle -->
+        <footer class="flex justify-between items-end">
+            <!-- Camera Preview Card -->
+            <div class="glass-panel p-2 rounded-2xl w-36 h-28 md:w-44 md:h-32 relative overflow-hidden pointer-events-auto shadow-2xl border border-amber-400/20">
+                <video id="webcam-video" autoplay playsinline muted></video>
+                <div class="absolute bottom-1.5 left-2 right-2 flex justify-between items-center text-[10px] bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-md text-amber-200/80">
+                    <span><i class="fa-solid fa-camera mr-1"></i> Live Feed</span>
+                    <button id="cam-toggle" class="hover:text-white"><i class="fa-solid fa-eye"></i></button>
+                </div>
+            </div>
+
+            <!-- Music Controls & Instructions -->
+            <div class="glass-panel px-5 py-3 rounded-2xl flex items-center gap-4 pointer-events-auto">
+                <button id="music-btn" class="w-10 h-10 rounded-full bg-amber-500/20 hover:bg-amber-500/40 border border-amber-300/30 flex items-center justify-center text-amber-300 transition">
+                    <i id="music-icon" class="fa-solid fa-music"></i>
+                </button>
+                <div class="text-xs">
+                    <div class="font-medium text-amber-200">Happy Birthday Melody</div>
+                    <div class="text-amber-100/50 text-[11px]">Rotate card with mouse drag</div>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Main Logic Script -->
+    <script>
+        // --- 1. Audio Synthesizer Engine (Web Audio API) ---
+        class BirthdayAudio {
+            constructor() {
+                this.ctx = null;
+                this.isPlaying = false;
+                this.timeoutIds = [];
+                // Happy Birthday notes & durations
+                this.notes = [
+                    { note: 'C4', duration: 0.35 }, { note: 'C4', duration: 0.15 },
+                    { note: 'D4', duration: 0.5 },  { note: 'C4', duration: 0.5 },
+                    { note: 'F4', duration: 0.5 },  { note: 'E4', duration: 0.9 },
+
+                    { note: 'C4', duration: 0.35 }, { note: 'C4', duration: 0.15 },
+                    { note: 'D4', duration: 0.5 },  { note: 'C4', duration: 0.5 },
+                    { note: 'G4', duration: 0.5 },  { note: 'F4', duration: 0.9 },
+
+                    { note: 'C4', duration: 0.35 }, { note: 'C4', duration: 0.15 },
+                    { note: 'C5', duration: 0.5 },  { note: 'A4', duration: 0.5 },
+                    { note: 'F4', duration: 0.5 },  { note: 'E4', duration: 0.5 },
+                    { note: 'D4', duration: 0.8 },
+
+                    { note: 'A#4', duration: 0.35 }, { note: 'A#4', duration: 0.15 },
+                    { note: 'A4', duration: 0.5 },   { note: 'F4', duration: 0.5 },
+                    { note: 'G4', duration: 0.5 },   { note: 'F4', duration: 1.0 }
+                ];
+                this.freqMap = {
+                    'C4': 261.63, 'D4': 293.66, 'E4': 329.63, 'F4': 349.23,
+                    'G4': 392.00, 'A4': 440.00, 'A#4': 466.16, 'C5': 523.25
+                };
+            }
+
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            playNote(freq, duration, time) {
+                if (!this.ctx) return;
+                const osc = this.ctx.createOscillator();
+                const gain = this.ctx.createGain();
+
+                // Soft bell-like synth tone
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(freq, time);
+
+                // Envelope
+                gain.gain.setValueAtTime(0, time);
+                gain.gain.linearRampToValueAtTime(0.25, time + 0.05);
+                gain.gain.exponentialRampToValueAtTime(0.001, time + duration + 0.2);
+
+                osc.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc.start(time);
+                osc.stop(time + duration + 0.25);
+            }
+
+            start() {
+                this.init();
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+                this.stop(); // Clear prior timers
+                this.isPlaying = true;
+
+                let currentTime = this.ctx.currentTime + 0.1;
+                this.notes.forEach((item) => {
+                    const freq = this.freqMap[item.note];
+                    const duration = item.duration * 0.9;
+                    
+                    const tid = setTimeout(() => {
+                        if (this.isPlaying) this.playNote(freq, duration, this.ctx.currentTime);
+                    }, (currentTime - this.ctx.currentTime) * 1000);
+
+                    this.timeoutIds.push(tid);
+                    currentTime += item.duration * 0.75; // Pace tempo
+                });
+
+                // Loop
+                const totalDuration = (currentTime - this.ctx.currentTime) * 1000 + 1000;
+                this.loopId = setTimeout(() => {
+                    if (this.isPlaying) this.start();
+                }, totalDuration);
+            }
+
+            stop() {
+                this.isPlaying = false;
+                this.timeoutIds.forEach(clearTimeout);
+                this.timeoutIds = [];
+                if (this.loopId) clearTimeout(this.loopId);
+            }
+        }
+
+        const audioSynth = new BirthdayAudio();
+
+        // --- 2. Three.js Scene Setup ---
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x0d0907, 0.035);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 1.2, 8.5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.15;
+        container.appendChild(renderer.domElement);
+
+        // OrbitControls
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.maxPolarAngle = Math.PI / 2 + 0.1; // Limit under ground view
+        controls.minDistance = 4;
+        controls.maxDistance = 14;
+
+        // --- 3. Atmospheric Lighting & Candlelight Flicker ---
+        const ambientLight = new THREE.AmbientLight(0xffdca8, 0.4);
+        scene.add(ambientLight);
+
+        // Warm flickering main candle light
+        const candleLight = new THREE.PointLight(0xff9d3b, 2.5, 20);
+        candleLight.position.set(0, 2.5, 2);
+        candleLight.castShadow = true;
+        candleLight.shadow.bias = -0.002;
+        scene.add(candleLight);
+
+        // Soft pink rim light from behind for movie glow
+        const rimLight = new THREE.PointLight(0xff6090, 1.8, 15);
+        rimLight.position.set(-4, 3, -4);
+        scene.add(rimLight);
+
+        // Candle light flicker logic
+        function animateCandleLight(time) {
+            candleLight.intensity = 2.2 + Math.sin(time * 8) * 0.2 + Math.cos(time * 17) * 0.15 + (Math.random() - 0.5) * 0.1;
+            candleLight.position.x = Math.sin(time * 2) * 0.1;
+        }
+
+        // --- 4. Procedural Canvas Textures for Card Inside & Cover ---
+        function createInsideTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 1448;
+            const ctx = canvas.getContext('2d');
+
+            // Paper Background
+            ctx.fillStyle = '#fffdfa';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Gold foil inner border
+            ctx.strokeStyle = '#d4af37';
+            ctx.lineWidth = 12;
+            ctx.strokeRect(40, 40, canvas.width - 80, canvas.height - 80);
+            ctx.lineWidth = 3;
+            ctx.strokeRect(55, 55, canvas.width - 110, canvas.height - 110);
+
+            // Greeting Text
+            ctx.textAlign = 'center';
+            
+            // Header
+            ctx.font = 'bold 64px "Playfair Display", serif';
+            ctx.fillStyle = '#c84b31';
+            ctx.fillText('Dear Bao,', canvas.width / 2, 220);
+
+            // Milestone
+            ctx.font = 'bold 82px "Dancing Script", cursive';
+            ctx.fillStyle = '#d4af37';
+            ctx.fillText('Happy 10,000 Days!', canvas.width / 2, 360);
+
+            // Decorative separator line
+            ctx.beginPath();
+            ctx.moveTo(canvas.width / 2 - 180, 420);
+            ctx.lineTo(canvas.width / 2 + 180, 420);
+            ctx.strokeStyle = '#e0a96d';
+            ctx.lineWidth = 4;
+            ctx.stroke();
+
+            // Heartfelt Message Body
+            ctx.font = 'italic 38px "Playfair Display", serif';
+            ctx.fillStyle = '#2c2c2c';
+            
+            const lines = [
+                "May your life be filled with endless joy,",
+                "wondrous moments, and warm love.",
+                "",
+                "10,000 days of shine and grace,",
+                "here's to a future full of magical adventures!"
+            ];
+
+            let startY = 560;
+            lines.forEach(line => {
+                ctx.fillText(line, canvas.width / 2, startY);
+                startY += 65;
+            });
+
+            // Signature Footer
+            ctx.font = 'bold 44px "Dancing Script", cursive';
+            ctx.fillStyle = '#c84b31';
+            ctx.fillText('With all best wishes & love ❤️', canvas.width / 2, 1220);
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function createFrontCoverTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 1448;
+            const ctx = canvas.getContext('2d');
+
+            // Elegant deep rose background with radial warmth
+            const grad = ctx.createRadialGradient(512, 724, 100, 512, 724, 800);
+            grad.addColorStop(0, '#5a1827');
+            grad.addColorStop(1, '#2a0810');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Outer Gold Frame
+            ctx.strokeStyle = '#e2c044';
+            ctx.lineWidth = 14;
+            ctx.strokeRect(35, 35, canvas.width - 70, canvas.height - 70);
+
+            // Title Header
+            ctx.textAlign = 'center';
+            ctx.font = 'bold 76px "Dancing Script", cursive';
+            ctx.fillStyle = '#fceade';
+            ctx.fillText('A Special Celebration', canvas.width / 2, 220);
+
+            ctx.font = '32px "Playfair Display", serif';
+            ctx.fillStyle = '#e2c044';
+            ctx.fillText('FOR BAO', canvas.width / 2, 290);
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // --- 5. Build 3D Card Architecture ---
+        const cardGroup = new THREE.Group();
+        scene.add(cardGroup);
+
+        const CARD_WIDTH = 2.4;
+        const CARD_HEIGHT = 3.4;
+        const CARD_THICKNESS = 0.04;
+
+        // Card Materials
+        const insideTexture = createInsideTexture();
+        const coverTexture = createFrontCoverTexture();
+
+        const cardMaterialBack = new THREE.MeshStandardMaterial({
+            color: 0x3d121a,
+            roughness: 0.4,
+            metalness: 0.1
+        });
+
+        const insideMaterial = new THREE.MeshStandardMaterial({
+            map: insideTexture,
+            roughness: 0.3,
+            metalness: 0.05
+        });
+
+        const coverMaterial = new THREE.MeshStandardMaterial({
+            map: coverTexture,
+            roughness: 0.35,
+            metalness: 0.1
+        });
+
+        // 1. Bottom Base Cover (Static relative to card base)
+        const backCoverGeo = new THREE.BoxGeometry(CARD_WIDTH, CARD_HEIGHT, CARD_THICKNESS);
+        // Face materials mapping: 4 (+Z inside)
+        const backMaterials = [
+            cardMaterialBack, cardMaterialBack, cardMaterialBack, cardMaterialBack, insideMaterial, cardMaterialBack
+        ];
+        const backCoverMesh = new THREE.Mesh(backCoverGeo, backMaterials);
+        backCoverMesh.position.set(0, 0, -CARD_THICKNESS / 2);
+        backCoverMesh.castShadow = true;
+        backCoverMesh.receiveShadow = true;
+        cardGroup.add(backCoverMesh);
+
+        // 2. Top Cover (Flips UP/OPEN along top edge hinge)
+        const topHingeGroup = new THREE.Group();
+        // Position hinge at the TOP edge of the bottom card
+        topHingeGroup.position.set(0, CARD_HEIGHT / 2, 0);
+        cardGroup.add(topHingeGroup);
+
+        const frontCoverGeo = new THREE.BoxGeometry(CARD_WIDTH, CARD_HEIGHT, CARD_THICKNESS);
+        // Face materials mapping: 5 (-Z inside facing bottom card), 4 (+Z outer front cover)
+        const frontMaterials = [
+            cardMaterialBack, cardMaterialBack, cardMaterialBack, cardMaterialBack, coverMaterial, insideMaterial
+        ];
+        const frontCoverMesh = new THREE.Mesh(frontCoverGeo, frontMaterials);
+        // Position mesh so top edge aligns with hinge (0,0,0)
+        frontCoverMesh.position.set(0, -CARD_HEIGHT / 2, CARD_THICKNESS / 2);
+        frontCoverMesh.castShadow = true;
+        frontCoverMesh.receiveShadow = true;
+        topHingeGroup.add(frontCoverMesh);
+
+        // --- 6. Cute 3D Birthday Cake on Front Cover ---
+        const cakeGroup = new THREE.Group();
+        // Attach cake onto the front cover surface
+        frontCoverMesh.add(cakeGroup);
+        cakeGroup.position.set(0, 0, CARD_THICKNESS / 2 + 0.01);
+        cakeGroup.rotation.x = Math.PI / 2; // Sit upright relative to card
+
+        // Cake Tier 1
+        const cakeTier1Geo = new THREE.CylinderGeometry(0.55, 0.55, 0.35, 32);
+        const cakeMat1 = new THREE.MeshStandardMaterial({ color: 0xff9ebb, roughness: 0.3 });
+        const cakeTier1 = new THREE.Mesh(cakeTier1Geo, cakeMat1);
+        cakeTier1.position.y = 0.175;
+        cakeGroup.add(cakeTier1);
+
+        // Cream Frosting Layer
+        const frostingGeo = new THREE.CylinderGeometry(0.57, 0.57, 0.08, 32);
+        const frostingMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.2 });
+        const frosting = new THREE.Mesh(frostingGeo, frostingMat);
+        frosting.position.y = 0.35;
+        cakeGroup.add(frosting);
+
+        // Cake Tier 2
+        const cakeTier2Geo = new THREE.CylinderGeometry(0.38, 0.38, 0.3, 32);
+        const cakeMat2 = new THREE.MeshStandardMaterial({ color: 0x7bdff2, roughness: 0.3 });
+        const cakeTier2 = new THREE.Mesh(cakeTier2Geo, cakeMat2);
+        cakeTier2.position.y = 0.5;
+        cakeGroup.add(cakeTier2);
+
+        // Decorative Cherries/Berries
+        for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2;
+            const berryGeo = new THREE.SphereGeometry(0.06, 16, 16);
+            const berryMat = new THREE.MeshStandardMaterial({ color: 0xff3366, roughness: 0.1 });
+            const berry = new THREE.Mesh(berryGeo, berryMat);
+            berry.position.set(Math.cos(angle) * 0.28, 0.67, Math.sin(angle) * 0.28);
+            cakeGroup.add(berry);
+        }
+
+        // Candle Body
+        const candleGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.35, 16);
+        const candleMat = new THREE.MeshStandardMaterial({ color: 0xfff3a0, roughness: 0.3 });
+        const candle = new THREE.Mesh(candleGeo, candleMat);
+        candle.position.y = 0.82;
+        cakeGroup.add(candle);
+
+        // Candle Flame
+        const flameGeo = new THREE.ConeGeometry(0.05, 0.15, 16);
+        const flameMat = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+        const flame = new THREE.Mesh(flameGeo, flameMat);
+        flame.position.y = 1.05;
+        cakeGroup.add(flame);
+
+        // Inner Flame Core
+        const flameCoreGeo = new THREE.ConeGeometry(0.025, 0.09, 16);
+        const flameCoreMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const flameCore = new THREE.Mesh(flameCoreGeo, flameCoreMat);
+        flameCore.position.y = 1.03;
+        cakeGroup.add(flameCore);
+
+        // Small light for candle flame
+        const cakeCandleLight = new THREE.PointLight(0xffaa22, 0.8, 2);
+        cakeCandleLight.position.y = 1.1;
+        cakeGroup.add(cakeCandleLight);
+
+        // --- 7. Particle Systems (Bokeh Atmosphere + Heart Confetti Burst) ---
+        
+        // A. Atmospheric Glowing Bokeh Background Particles
+        const bokehCount = 120;
+        const bokehGeo = new THREE.BufferGeometry();
+        const bokehPos = new Float32Array(bokehCount * 3);
+        const bokehScales = new Float32Array(bokehCount);
+
+        for (let i = 0; i < bokehCount; i++) {
+            bokehPos[i * 3] = (Math.random() - 0.5) * 15;
+            bokehPos[i * 3 + 1] = (Math.random() - 0.5) * 10;
+            bokehPos[i * 3 + 2] = (Math.random() - 0.5) * 10;
+            bokehScales[i] = Math.random() * 0.15 + 0.05;
+        }
+
+        bokehGeo.setAttribute('position', new THREE.BufferAttribute(bokehPos, 3));
+
+        // Soft round glow texture creation
+        function createGlowTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+            grad.addColorStop(0, 'rgba(255, 220, 150, 1)');
+            grad.addColorStop(0.4, 'rgba(255, 150, 80, 0.5)');
+            grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 64, 64);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        const bokehMat = new THREE.PointsMaterial({
+            size: 0.3,
+            map: createGlowTexture(),
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            opacity: 0.6
+        });
+
+        const bokehParticles = new THREE.Points(bokehGeo, bokehMat);
+        scene.add(bokehParticles);
+
+        // B. Dynamic Heart Ribbon Confetti Burst System
+        // Heart Shape Definition
+        const heartShape = new THREE.Shape();
+        const x = 0, y = 0;
+        heartShape.moveTo(x + 0.25, y + 0.25);
+        heartShape.bezierCurveTo(x + 0.25, y + 0.25, x + 0.2, y, x, y);
+        heartShape.bezierCurveTo(x - 0.3, y, x - 0.3, y + 0.35, x - 0.3, y + 0.35);
+        heartShape.bezierCurveTo(x - 0.3, y + 0.55, x - 0.1, y + 0.77, x + 0.25, y + 0.95);
+        heartShape.bezierCurveTo(x + 0.6, y + 0.77, x + 0.8, y + 0.55, x + 0.8, y + 0.35);
+        heartShape.bezierCurveTo(x + 0.8, y + 0.35, x + 0.8, y, x + 0.5, y);
+        heartShape.bezierCurveTo(x + 0.35, y, x + 0.25, y + 0.25, x + 0.25, y + 0.25);
+
+        const heartGeo = new THREE.ExtrudeGeometry(heartShape, {
+            depth: 0.02,
+            bevelEnabled: true,
+            bevelSegments: 2,
+            steps: 1,
+            bevelSize: 0.02,
+            bevelThickness: 0.02
+        });
+        heartGeo.scale(0.12, 0.12, 0.12);
+        heartGeo.center();
+
+        const heartColors = [0xff4b72, 0xff85a2, 0xffc2d1, 0xffb703, 0xf72585, 0x4cc9f0];
+        const activeConfetti = [];
+
+        function triggerHeartBurst() {
+            const confettiCount = 70;
+            for (let i = 0; i < confettiCount; i++) {
+                const color = heartColors[Math.floor(Math.random() * heartColors.length)];
+                const mat = new THREE.MeshStandardMaterial({
+                    color: color,
+                    roughness: 0.2,
+                    metalness: 0.1,
+                    side: THREE.DoubleSide
+                });
+
+                const mesh = new THREE.Mesh(heartGeo, mat);
+                // Burst center from middle of opened card
+                mesh.position.set((Math.random() - 0.5) * 0.4, 0, (Math.random() - 0.5) * 0.2);
+
+                // Initial burst velocity
+                const velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 4.5,
+                    Math.random() * 4 + 3,
+                    (Math.random() - 0.5) * 4.5
+                );
+
+                const rotSpeed = new THREE.Vector3(
+                    (Math.random() - 0.5) * 10,
+                    (Math.random() - 0.5) * 10,
+                    (Math.random() - 0.5) * 10
+                );
+
+                scene.add(mesh);
+                activeConfetti.push({ mesh, velocity, rotSpeed, life: 1.0 });
+            }
+        }
+
+        function updateConfetti(delta) {
+            for (let i = activeConfetti.length - 1; i >= 0; i--) {
+                const c = activeConfetti[i];
+                c.life -= delta * 0.35;
+
+                // Physics movement
+                c.velocity.y -= 7.8 * delta; // Gravity
+                c.mesh.position.addScaledVector(c.velocity, delta);
+
+                // Rotation
+                c.mesh.rotation.x += c.rotSpeed.x * delta;
+                c.mesh.rotation.y += c.rotSpeed.y * delta;
+                c.mesh.rotation.z += c.rotSpeed.z * delta;
+
+                // Scale fade out
+                const currentScale = Math.max(0, c.life);
+                c.mesh.scale.set(currentScale, currentScale, currentScale);
+
+                if (c.life <= 0) {
+                    scene.remove(c.mesh);
+                    c.mesh.geometry.dispose();
+                    c.mesh.material.dispose();
+                    activeConfetti.splice(i, 1);
+                }
+            }
+        }
+
+        // --- 8. Smooth Card Transition Control Logic ---
+        let isCardOpen = false;
+        let targetHingeAngle = 0; // 0 = Closed, Math.PI * 0.85 = Open
+
+        function setCardState(open) {
+            if (isCardOpen === open) return;
+            isCardOpen = open;
+
+            targetHingeAngle = isCardOpen ? Math.PI * 0.88 : 0;
+
+            // UI Label updates
+            document.getElementById('gesture-text').textContent = isCardOpen ? 'Hand Open / Unfolding Happiness' : 'Hand Closed / Card Folded';
+            document.getElementById('btn-label').textContent = isCardOpen ? 'Click to Close Card' : 'Click or Open Hand to Unfold Magic';
+
+            if (isCardOpen) {
+                // Play Music
+                audioSynth.start();
+                document.getElementById('music-icon').className = "fa-solid fa-volume-high text-pink-400 animate-pulse";
+
+                // Trigger colorful heart confetti burst
+                setTimeout(triggerHeartBurst, 250);
+
+                // Gentle camera tilt towards card interior
+                gsap.to(camera.position, {
+                    x: 0,
+                    y: 0.8,
+                    z: 7.2,
+                    duration: 1.8,
+                    ease: "power2.out"
+                });
+            } else {
+                audioSynth.stop();
+                document.getElementById('music-icon').className = "fa-solid fa-music";
+
+                // Reset camera position
+                gsap.to(camera.position, {
+                    x: 0,
+                    y: 1.2,
+                    z: 8.5,
+                    duration: 1.5,
+                    ease: "power2.inOut"
+                });
+            }
+        }
+
+        // UI Click Fallback Toggle
+        document.getElementById('toggle-card-btn').addEventListener('click', () => {
+            setCardState(!isCardOpen);
+        });
+
+        // Audio Button Manual Toggle
+        document.getElementById('music-btn').addEventListener('click', () => {
+            if (audioSynth.isPlaying) {
+                audioSynth.stop();
+                document.getElementById('music-icon').className = "fa-solid fa-music";
+            } else {
+                audioSynth.start();
+                document.getElementById('music-icon').className = "fa-solid fa-volume-high text-pink-400 animate-pulse";
+            }
+        });
+
+        // --- 9. MediaPipe Hands Tracking Integration ---
+        const videoElement = document.getElementById('webcam-video');
+        const statusDot = document.getElementById('status-dot');
+        const statusText = document.getElementById('status-text');
+
+        function onHandResults(results) {
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                statusDot.className = "w-3.5 h-3.5 rounded-full bg-emerald-400 glow-active";
+                statusText.textContent = "Hand Detected";
+
+                const landmarks = results.multiHandLandmarks[0];
+
+                // Calculate distance between finger tips and wrist (landmark 0)
+                // Tips: Index (8), Middle (12), Ring (16), Pinky (20)
+                const wrist = landmarks[0];
+                const tips = [8, 12, 16, 20];
+
+                let extendedCount = 0;
+                tips.forEach(tipIdx => {
+                    const tip = landmarks[tipIdx];
+                    const mcp = landmarks[tipIdx - 2]; // Joint base
+                    // Distance check: If tip is further from wrist than lower joint
+                    const distTip = Math.hypot(tip.x - wrist.x, tip.y - wrist.y);
+                    const distMcp = Math.hypot(mcp.x - wrist.x, mcp.y - wrist.y);
+
+                    if (distTip > distMcp * 1.15) {
+                        extendedCount++;
+                    }
+                });
+
+                // Gesture Rule: If 3 or more fingers extended -> Hand Open -> Open Card
+                if (extendedCount >= 3) {
+                    setCardState(true);
+                } else if (extendedCount <= 1) {
+                    setCardState(false);
+                }
+            } else {
+                statusDot.className = "w-3.5 h-3.5 rounded-full bg-amber-400";
+                statusText.textContent = "Searching Hand...";
+            }
+        }
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.6,
+            minTrackingConfidence: 0.6
+        });
+
+        hands.onResults(onHandResults);
+
+        // Webcam Setup
+        const cameraUtils = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({ image: videoElement });
+            },
+            width: 320,
+            height: 240
+        });
+
+        cameraUtils.start().catch(err => {
+            console.warn("Webcam access restricted or unavailable:", err);
+            statusDot.className = "w-3.5 h-3.5 rounded-full bg-neutral-500";
+            statusText.textContent = "Manual Mode";
+        });
+
+        // Hide/Show video preview button
+        document.getElementById('cam-toggle').addEventListener('click', () => {
+            if (videoElement.style.display === 'none') {
+                videoElement.style.display = 'block';
+            } else {
+                videoElement.style.display = 'none';
+            }
+        });
+
+        // --- 10. Animation & Render Loop ---
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const delta = clock.getDelta();
+            const elapsedTime = clock.getElapsedTime();
+
+            // Candlelight Flicker Effect
+            animateCandleLight(elapsedTime);
+
+            // Smooth Lerp Hinge Opening Animation
+            topHingeGroup.rotation.x = THREE.MathUtils.lerp(
+                topHingeGroup.rotation.x,
+                targetHingeAngle,
+                delta * 3.5
+            );
+
+            // Gentle Floating Motion for Whole Card
+            cardGroup.position.y = Math.sin(elapsedTime * 1.2) * 0.08;
+            cardGroup.rotation.z = Math.sin(elapsedTime * 0.8) * 0.02;
+
+            // Animate Flame effect on cake
+            flame.scale.x = 1 + Math.sin(elapsedTime * 15) * 0.15;
+            flame.scale.z = 1 + Math.cos(elapsedTime * 12) * 0.15;
+
+            // Animate Bokeh Background
+            const positions = bokehParticles.geometry.attributes.position.array;
+            for (let i = 0; i < bokehCount; i++) {
+                positions[i * 3 + 1] += Math.sin(elapsedTime + i) * 0.002;
+            }
+            bokehParticles.geometry.attributes.position.needsUpdate = true;
+
+            // Update Particle Confetti physics
+            updateConfetti(delta);
+
+            // Controls update
+            controls.update();
+
+            // Render
+            renderer.render(scene, camera);
+        }
+
+        // Window Resize Handling
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start Loop on Window Load
+        window.onload = () => {
+            animate();
+        };
+    </script>
+</body>
+</html>
